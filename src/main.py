@@ -1,5 +1,6 @@
 import time
 import json
+from xml.parsers.expat import errors
 import requests
 from pathlib import Path
 from bs4 import BeautifulSoup
@@ -15,6 +16,12 @@ CACHE_DIR = Path("cache")
 
 HEADERS = {
     "User-Agent": "FlyRankInternship-A9/1.0 (+https://github.com/alihassanwarsi/flyrank-polite-scraper)"
+}
+
+STATS = {
+    "pages_fetched": 0,
+    "cache_hits": 0,
+    "failed_pages": 0
 }
 
 class BookRecord(BaseModel):
@@ -34,24 +41,47 @@ def fetch_page(url, cache_file):
     if cache_file.exists():
         html = cache_file.read_text(encoding="utf-8")
 
+        STATS["cache_hits"] += 1
+
         print(f"CACHE HIT: {url}")
         return html
 
-    response = requests.get(url, headers=HEADERS, timeout=10)
+    for attempt in range(2):
+        try:
+            response = requests.get(url, headers=HEADERS, timeout=10)
 
-    if response.status_code != 200:
-        raise RuntimeError(f"Failed to fetch page: {response.status_code}")
+            time.sleep(0.5)
 
-    response.encoding = "utf-8"
-    html = response.text
+            if response.status_code == 200:
+                response.encoding = "utf-8"
+                html = response.text
 
-    cache_file.write_text(html, encoding="utf-8")
+                cache_file.write_text(html, encoding="utf-8")
 
-    print(f"FETCH: {url}")
+                STATS["pages_fetched"] += 1
 
-    time.sleep(0.5)
+                print(f"FETCH: {url}")
 
-    return html
+                return html
+
+            if response.status_code == 404 or response.status_code == 403:
+                raise RuntimeError(f"Failed to fetch page: {response.status_code}")
+
+            if response.status_code >= 500:
+                if attempt == 0:
+                    print(f"RETRY: {url}")
+                    time.sleep(1)
+                    continue
+
+            raise RuntimeError(f"Failed to fetch page: {response.status_code}")
+
+        except requests.RequestException as error:
+            if attempt == 0:
+                print(f"RETRY: {url}")
+                time.sleep(1)
+                continue
+
+            raise RuntimeError(f"Request failed: {error}")
 
 
 def discover_books():
@@ -236,20 +266,81 @@ def save_records(raw_records):
     print(f"valid_records={len(valid_records)}")
     print(f"invalid_records={len(errors)}")
 
+    return len(valid_records), len(errors)
+
+
+def save_run_report(start_time, valid_records, invalid_records, failed_pages):
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+
+    end_time = datetime.now(timezone.utc)
+
+    duration = (end_time - start_time).total_seconds()
+
+    report = {
+        "start_time": start_time.isoformat(),
+        "duration_seconds": duration,
+        "pages_fetched": STATS["pages_fetched"],
+        "cache_hits": STATS["cache_hits"],
+        "valid_records": valid_records,
+        "invalid_records": invalid_records,
+        "failed_pages": STATS["failed_pages"],
+        "failures": failed_pages
+    }
+
+    report_file = output_dir / "run-report.json"
+
+    report_file.write_text(
+        json.dumps(
+            report,
+            indent=4,
+            ensure_ascii=False
+        ),
+        encoding="utf-8"
+    )
+
+    print(f"failed_pages={STATS['failed_pages']}")
+
 if __name__ == "__main__":
+    start_time = datetime.now(timezone.utc)
+
     books = discover_books()
 
+    books.append({
+        "product_url": "https://books.toscrape.com/catalogue/fake-book-does-not-exist/index.html",
+        "source_page": PAGE_URL
+    })
+
     raw_records = []
+    failed_pages = []
 
     for book in books:
-        record = extract_book(
-            book["product_url"],
-            book["source_page"]
-        )
+        try:
+            record = extract_book(
+                book["product_url"],
+                book["source_page"]
+            )
 
-        raw_records.append(record)
+            raw_records.append(record)
+
+        except Exception as error:
+            STATS["failed_pages"] += 1
+
+            failed_pages.append({
+                "url": book["product_url"],
+                "reason": str(error)
+            })
+
+            print(f"SKIPPED: {book['product_url']}")
 
     print(raw_records[0])
     print(f"detail_pages={len(raw_records)}")
 
-    save_records(raw_records)
+    valid_records, invalid_records = save_records(raw_records)
+
+    save_run_report(
+        start_time,
+        valid_records,
+        invalid_records,
+        failed_pages
+    )

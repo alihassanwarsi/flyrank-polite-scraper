@@ -1,0 +1,15 @@
+{
+    "start_time": "2026-08-10T21:05:11.747454+00:00",
+    "duration_seconds": 2.645741,
+    "pages_fetched": 0,
+    "cache_hits": 63,
+    "valid_records": 60,
+    "invalid_records": 0,
+    "failed_pages": 1,
+    "failures": [
+        {
+            "url": "https://books.toscrape.com/catalogue/fake-book-does-not-exist/index.html",
+            "reason": "Failed to fetch page: 404"
+        }
+    ]
+}
