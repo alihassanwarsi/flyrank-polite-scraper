@@ -50,6 +50,20 @@ The required information is extracted from the HTML, cleaned, validated using Py
 
 A run report is generated at the end showing what happened during the run.
 
+## Project Structure
+
+```
+flyrank-polite-scraper/
+├── src/
+│   └── main.py          
+├── output/
+│   ├── books.json       
+│   ├── errors.json      
+│   └── run-report.json  
+├── requirements.txt
+└── README.md
+```
+
 ## Installation
 
 Clone the repository:
